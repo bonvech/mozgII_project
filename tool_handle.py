@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import traceback
 from langchain_openrouter import ChatOpenRouter
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
@@ -57,6 +58,7 @@ def handle(user_message: str, user_id: int):
                 try:
                     tool_result = tool_func.invoke(tool_args)
                 except Exception as e:
+                    traceback.print_exc()
                     tool_result = f"Ошибка выполнения: {str(e)}"
 
             history.append(AIMessage(content=response.content, tool_calls=[tool_call]))

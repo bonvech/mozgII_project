@@ -1,4 +1,5 @@
 import os
+import traceback
 from vk_api import VkApi
 from vk_api.bot_longpoll import VkBotLongPoll,VkBotEventType
 from dotenv import load_dotenv
@@ -44,10 +45,12 @@ def run_bot() -> None:
         try:
             res = handle(event.message['text'], event.message.peer_id)
             if res is None:
+                print("Ошибка: handle вернул None")
                 send_message(vk, event.message.peer_id, "Произошла ошибка")
             else:
                 send_message(vk, event.message.peer_id, res[0], res[1])
         except Exception as e:
+            traceback.print_exc()
             send_message(vk, event.message.peer_id, f"Ошибка: {e}")
 
 
