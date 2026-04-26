@@ -1,3 +1,7 @@
+langchain-openrouter
+langchain
+langgraph
+vk-api
+python-dotenv
 requests
-vk_api
-openai
+pydantic>=2.7.4

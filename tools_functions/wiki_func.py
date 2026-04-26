@@ -1,3 +1,4 @@
+from langchain_core.tools import tool
 import requests
 
 WIKI_API_URL = "https://ru.wikipedia.org/w/api.php"
@@ -5,32 +6,36 @@ WIKI_API_URL = "https://ru.wikipedia.org/w/api.php"
 __session = requests.Session()
 __session.headers.update({'User-Agent': 'MediaWiki REST API docs examples/0.1'})
 
-def search(query: str, limit: int = 5) -> list[str]:
-    # https://www.mediawiki.org/wiki/API:Opensearch
+
+@tool
+def wiki_search(query: str) -> str:
+    """Поиск статей в Wikipedia и получение краткой выдержки."""
     params = {
         "action": "opensearch",
         "search": query,
-        "limit": limit,
+        "limit": 5,
         "format": "json"
     }
 
     response = __session.get(WIKI_API_URL, params=params, timeout=10)
-    return response.json()[1]
+    titles = response.json()[1]
 
-def get_extract(title: str, len: int = 5) -> str:
-    # https://www.mediawiki.org/wiki/API:Query
-    # https://www.mediawiki.org/w/api.php?action=help&modules=query%2Bextracts
+    if not titles:
+        return f'По запросу {query} ничего не найдено'
+
+    title = titles[0]
     params = {
         "action": "query",
         "prop": "extracts",
         "explaintext": True,
-        "exsentences": len,
+        "exsentences": 5,
         "titles": title,
         "format": "json",
         "redirects": 1,
-    } 
-
+    }
     response = __session.get(WIKI_API_URL, params=params, timeout=10)
     pages = response.json()["query"]["pages"]
     page = next(iter(pages.values()))
-    return page.get("extract", "К сожалению получить страницу не получилось(")
+    extract = page.get("extract", "К сожалению получить страницу не получилось(")
+
+    return f'Статья: {title}\n\n{extract}'
