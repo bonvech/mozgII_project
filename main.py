@@ -1,5 +1,8 @@
 import os
 import traceback
+import requests
+import tempfile
+import base64
 from vk_api import VkApi
 from vk_api.bot_longpoll import VkBotLongPoll,VkBotEventType
 from dotenv import load_dotenv
@@ -10,6 +13,47 @@ load_dotenv()
 group_id = os.getenv('GROUP_ID')
 group_token = os.getenv('GROUP_TOKEN')
 
+def upload_photo_to_vk(vk, image_url: str, peer_id: int) -> str | None:
+    try:
+        if image_url.startswith("data:"):
+            header, data = image_url.split(",", 1)
+            image_data = base64.b64decode(data)
+            ext = "png" if "png" in header else "jpg"
+        else:
+            resp = requests.get(image_url, timeout=30)
+            if resp.status_code != 200:
+                return None
+            image_data = resp.content
+            ext = "jpg"
+
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+            tmp.write(image_data)
+            tmp_path = tmp.name
+
+        upload_url = vk.photos.getMessagesUploadServer(peer_id=peer_id)["upload_url"]
+
+        with open(tmp_path, "rb") as f:
+            files = {"photo": f}
+            resp = requests.post(upload_url, files=files, timeout=30)
+
+        os.remove(tmp_path)
+        result = resp.json()
+
+        if "photo" not in result:
+            return None
+
+        saved = vk.photos.saveMessagesPhoto(
+            photo=result["photo"],
+            server=result["server"],
+            hash=result["hash"]
+        )[0]
+
+        return f"photo{saved['owner_id']}_{saved['id']}"
+    except Exception as e:
+        print(f"Ошибка загрузки фото: {e}")
+        return None
+
+
 def send_message(vk, peer_id: int, text: str, picture: str | None = None) -> int:
     params = {
         "peer_id": peer_id,
@@ -17,8 +61,15 @@ def send_message(vk, peer_id: int, text: str, picture: str | None = None) -> int
         "random_id": 0,
     }
 
-    if picture != None:
-        params["attachment"] = picture
+    if picture:
+        if picture.startswith("http") or picture.startswith("data:"):
+            attachment = upload_photo_to_vk(vk, picture, peer_id)
+            if attachment:
+                params["attachment"] = attachment
+            else:
+                text += "\n(Не удалось загрузить изображение)"
+        else:
+            params["attachment"] = picture
 
     return vk.messages.send(**params)
 
