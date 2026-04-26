@@ -9,4 +9,5 @@
 ** Цель проекта**
 
 ** Ресурсы проекта**
+
 Яндекс Доска https://boards.yandex.ru/whiteboard/?hash=85f23574b2ebce1db6ccdc7b01cfaeb4
