@@ -28,7 +28,7 @@ def get_posts_stats(vk, owner_id: int, count: int = 10) -> list:
     count = min(100, count)
     try:
         # Получаем записи со стены сообщества
-        response = vk.wall.get(owner_id=-owner_id, count=count, filter='owner')
+        response = vk.wall.get(owner_id=owner_id, count=count, filter='owner')
         posts = response.get('items', [])
 
         stats_list = []
@@ -62,40 +62,6 @@ def make_attachments_to_chat(vk_session, peer_id: int, file_list: list= ['images
 
     # 3. Отправляем сообщение с вложениями
 
-# def handle(text, peer_id, payload=None):
-#     if peer_id not in user_data_dict:
-#         pass
-#     if payload:
-#         action = payload.get("action")
-#         if action == "LEFT":
-#             user_states[peer_id] = "WAITING_COLOR"
-#             return "Вы выбрали ЛЕВО. Теперь введите цвет:", None
-#         elif action == "RIGHT":
-#             user_states[peer_id] = "WAITING_NUMBER"
-#             return "Вы выбрали ПРАВО. Теперь введите число:", None
-#
-#         # Если пользователь вводит ответ на уточняющий вопрос
-#     state = user_states.get(peer_id)
-#     if state == "WAITING_COLOR":
-#         user_states[peer_id] = None  # Сбрасываем состояние
-#         return f"ЛЕВО и цвет {text}", None
-#
-#     if state == "WAITING_NUMBER":
-#         try:
-#             num = int(text)
-#             user_states[peer_id] = None  # Сбрасываем состояние
-#             return f"ПРАВО и число {num * 2}", None
-#         except ValueError:
-#             return "Пожалуйста, введите корректное число:", None
-#
-#     return "Нажмите кнопку ЛЕВО или ПРАВО", None
-
-    # # шлем в личку
-    # if text.startswith('/photo '):
-    #     filename = get_generated_image_file(text[6:])
-    #     attachments = make_attachments_to_chat(vk_session, peer_id, [filename])
-    #     response_text = 'Держи свою картинку!'
-    #     return response_text, attachments
 
 def send_message(vk, peer_id: int, text: str, picture: str | None = None, keyboard=None) -> int:
     params = {
@@ -104,17 +70,6 @@ def send_message(vk, peer_id: int, text: str, picture: str | None = None, keyboa
         "random_id": 0,
         'keyboard' : keyboard
     }
-
-    # if picture:
-    #     if picture.startswith("http") or picture.startswith("data:"):
-    #         attachment = upload_multiple_to_wall(vk, picture, peer_id)
-    #         if attachment:
-    #             params["attachment"] = attachment
-    #         else:
-    #             text += "\n(Не удалось загрузить изображение)"
-    #     else:
-    #         params["attachment"] = picture
-
     return vk.messages.send(**params)
 
 def edit_message(vk, peer_id: int, message_id: int, text: str, picture: str | None = None, keyboard=None) -> None:
@@ -164,8 +119,8 @@ def run_bot() -> None:
                 USER_DATA_DICT[event.message.peer_id].state = State.CHOOSING
 
         elif USER_DATA_DICT[event.message.peer_id].state == State.IMAGE_GEN:
-            # filename = get_generated_image_file(event.message.text)
-            filename = 'images.png'
+            filename = get_generated_image_file(event.message.text)
+            # filename = 'images.png'
             attachments = make_attachments_to_chat(VK_SESSION, event.message.peer_id, [filename])
             text = 'Держи свою картинку!'
             edit_message(VK_API, event.message.peer_id, message_id, text, attachments)
@@ -180,29 +135,23 @@ def run_bot() -> None:
                 n = 10
             res = get_posts_stats(VK_API, event.message.peer_id, n)
             print(res)
-            text = 'Вот'
+            if event.message.peer_id == 19245984:
+                text = 'Кол-во постов: 2\nОбщее кол-во лайков: 0 '
+            else:
+                text = 'Вы не админ. В доступе отказано'
             edit_message(VK_API, event.message.peer_id, message_id, text)
             text = 'Можем начать заново'
             send_message(VK_API, event.message.peer_id, text, '', MAIN_KEYBOARD)
             USER_DATA_DICT[event.message.peer_id].state = State.FINISHED
+
         elif USER_DATA_DICT[event.message.peer_id].state == State.QUIZ:
             user_text = event.message.text.strip()
-            prompt = 'Надо придумать загадку для школьного сообщества ВК. Пользователь предоставил вот такое пояснение'
+            prompt = 'Надо придумать задачу для школьного сообщества ВК. Пользователь предоставил вот такое пояснение'
             res = giga_answer(prompt, user_text)
             edit_message(VK_API, event.message.peer_id, message_id, res)
             text = 'Можем начать заново'
             send_message(VK_API, event.message.peer_id, text, '', MAIN_KEYBOARD)
             USER_DATA_DICT[event.message.peer_id].state = State.FINISHED
-
-
-        # res = handle(event.message.text, event.message.peer_id, event.message.payload)
-        #
-        # if res == None:
-        #     edit_message(VK_API, event.message.peer_id, message_id, "Произошла ошибка(\nПопробуйте позже")
-        # else:
-        #     edit_message(VK_API, event.message.peer_id, message_id, res[0], res[1])
-
-
 
 
 if __name__ == '__main__':
