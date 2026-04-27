@@ -1,140 +1,158 @@
-from dotenv import load_dotenv
-
-load_dotenv()
-
-import os
-import json
-import time
-import traceback
-from langchain_openrouter import ChatOpenRouter
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
-
-from tools_functions import wiki_search, generate_picture, get_content_info
-
-SYSTEM_PROMPT = """Ты бот для VK. Получаешь запросы пользователей, определяешь нужно ли использовать инструменты.
-Инструменты вызываются С ПАРАМЕТРАМИ. При вызове generate_picture ты ОБЯЗАН передать параметр 'prompt' с описанием картинки.
-Пример вызова: {"name": "generate_picture", "arguments": {"prompt": "описание картинки"}}
-Если нужен поиск по Wikipedia — используй wiki_search с параметром 'query'.
-Если нужно сгенерировать картинку — используй generate_picture с параметром 'prompt'.
-Внимательно читай результаты инструментов и формируй ответ пользователю НА РУССКОМ ЯЗЫКЕ.
-ВАЖНО: После получения результата инструмента, всегда отправляй пользователю ОБРАБОТАННЫЙ И КРАСИВО ОТФОРМАТИРОВАННЫЙ ОТВЕТ, а не сам результат."""
-
-MAX_HISTORY_MESSAGES = 10
-
-MODEL_NAME = "nvidia/nemotron-3-super-120b-a12b:free"
-AI_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-ai = ChatOpenRouter(
-    model=MODEL_NAME,
-    temperature=0.7,
-    max_tokens=500,
-    api_key=AI_API_KEY,
-    app_url="hse.ru",
-    app_title="Test AI Bot",
-)
-
-AVAILABLE_TOOLS = [wiki_search, generate_picture, get_content_info]
-ai_with_tools = ai.bind_tools(AVAILABLE_TOOLS)
-
-user_chats: dict[int, list] = {}
-
-
-def handle(user_message: str, user_id: int):
-    history = user_chats.get(user_id)
-
-    if not history:
-        history = [SystemMessage(content=SYSTEM_PROMPT)]
-
-    history.append(HumanMessage(content=user_message))
-    history = history[-MAX_HISTORY_MESSAGES:]
-
-    response = ai_with_tools.invoke(history)
-    attachment = None
-
-    if hasattr(response, "tool_calls") and response.tool_calls:
-        # Добавляем AIMessage с tool calls в историю
-        history.append(response)
-
-        for tool_call in response.tool_calls:
-            # Универсальное извлечение параметров (работает и для dict, и для объектов)
-            if isinstance(tool_call, dict):
-                tool_name = tool_call.get("name")
-                tool_args = tool_call.get("args") or tool_call.get("arguments")
-                tool_call_id = tool_call.get("id")
-            else:
-                tool_name = getattr(tool_call, "name", None)
-                tool_args = getattr(tool_call, "args", None) or getattr(tool_call, "arguments", None)
-                tool_call_id = getattr(tool_call, "id", None)
-
-            if isinstance(tool_args, str):
-                try:
-                    tool_args = json.loads(tool_args)
-                except json.JSONDecodeError:
-                    tool_args = None
-
-            if not tool_name:
-                print(f"Ошибка: не удалось извлечь имя инструмента из tool_call: {tool_call}")
-                continue
-
-            tool_func = next((t for t in AVAILABLE_TOOLS if t.name == tool_name), None)
-
-            if not tool_func:
-                tool_result_str = f"Неизвестная функция: {tool_name}"
-            elif not tool_args:
-                print(f"Ошибка: пустые аргументы для {tool_name}")
-                continue
-            else:
-                try:
-                    tool_result = tool_func.invoke(tool_args)
-
-                    # Проверка на успешную генерацию картинки
-                    if tool_name == "generate_picture" and isinstance(tool_result, dict):
-                        if tool_result.get("status") == "success":
-                            attachment = tool_result.get("image_url")
-
-                    # Преобразуем результат в строку
-                    tool_result_str = json.dumps(tool_result, ensure_ascii=False) if isinstance(tool_result,
-                                                                                                dict) else str(
-                        tool_result)
-                except Exception as e:
-                    traceback.print_exc()
-                    tool_result_str = f"Ошибка выполнения инструмента: {str(e)}"
-
-            # Добавляем ToolMessage
-            history.append(ToolMessage(
-                content=tool_result_str,
-                tool_call_id=tool_call_id
-            ))
-
-        # Получаем финальный ответ от ИИ (ВАЖНО - это обязательно!)
-        final_response = None
-        for attempt in range(3):
-            try:
-                final_response = ai.invoke(history)
-                break
-            except Exception as e:
-                if attempt < 2 and "502" in str(e):
-                    print(f"Попытка {attempt + 1} не удалась, повторяю...")
-                    time.sleep(2)
-                    continue
-                traceback.print_exc()
-                return f"Ошибка API: {str(e)}", None
-
-        if final_response:
-            history.append(final_response)
-    else:
-        final_response = response
-        history.append(final_response)
-
-    user_chats[user_id] = history
-
-    # Извлекаем текст ответа
-    text = ""
-    if final_response and hasattr(final_response, "content"):
-        text = final_response.content or ""
-
-    if not text:
-        text = "Извините, я не смог обработать ваш запрос"
-
-    return text, attachment
+# from dotenv import load_dotenv
+#
+# load_dotenv()
+#
+# import os
+# import json
+# import time
+# import traceback
+# from langchain_openrouter import ChatOpenRouter
+# from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+# from langchain_core.tools import tool
+#
+# from tools_functions import wiki_search, generate_picture, get_content_info
+#
+# SYSTEM_PROMPT = """Ты – дружелюбный ИИ помощник для VK. Отвечаешь на русском языке.
+#
+# У ТЕБЯ ЕСТЬ ИНСТРУМЕНТЫ:
+# - wiki_search(query: str) – поиск информации в Википедии
+# - generate_picture(prompt: str) – генерация изображения
+#
+# КОГДА ИСПОЛЬЗОВАТЬ ИНСТРУМЕНТЫ:
+# Используй wiki_search если:
+#   Запрос требует точных фактов (даты, имена, события)
+#   Спрашивают конкретно: "Когда?", "Сколько?", "Кто?", "Где?"
+#   Нужна проверка информации
+#
+# НЕ используй wiki_search если:
+#
+#   Можешь дать хороший ответ из своих знаний
+#
+# ПРАВИЛА ОТВЕТОВ:
+# 1. Если использовал инструмент → ВСЕГДА переформулируй результат в ответ
+# 2. Никогда не выводи структуру инструментов
+# 3. Ответ должен быть информативным и дружелюбным"""
+#
+# MAX_HISTORY_MESSAGES = 10
+#
+# MODEL_NAME = "qwen/qwen3.5-flash-02-23"
+# AI_API_KEY = os.getenv("OPENROUTER_API_KEY")
+#
+# ai = ChatOpenRouter(
+#     model=MODEL_NAME,
+#     temperature=0.7,
+#     max_tokens=600,
+#     api_key=AI_API_KEY,
+#     app_url="hse.ru",
+#     app_title="Test AI Bot",
+# )
+#
+# AVAILABLE_TOOLS = [wiki_search, generate_picture, get_content_info]
+# ai_with_tools = ai.bind_tools(AVAILABLE_TOOLS)
+#
+# user_chats: dict[int, list] = {}
+#
+#
+# def handle(user_message: str, user_id: int) -> tuple[str, str | None]:
+#     """Обработка сообщения с поддержкой инструментов."""
+#
+#     history = user_chats.get(user_id)
+#     if not history:
+#         history = [SystemMessage(content=SYSTEM_PROMPT)]
+#
+#     history.append(HumanMessage(content=user_message))
+#     history = history[-MAX_HISTORY_MESSAGES:]
+#
+#     response = ai_with_tools.invoke(history)
+#     attachment = None
+#
+#     if hasattr(response, "tool_calls") and response.tool_calls:
+#         print(f"🔍 ИИ решил использовать инструменты: {[tc['name'] for tc in response.tool_calls]}")
+#
+#         # ВАЖНО: Добавляем AIMessage с tool_calls
+#         history.append(response)
+#         print(f"   Добавлен AIMessage с {len(response.tool_calls)} tool_calls")
+#         print(response)
+#
+#         for tool_call in response.tool_calls:
+#             tool_name = tool_call["name"]
+#             tool_args = tool_call["args"]
+#             tool_call_id = tool_call["id"]
+#
+#             if not tool_name:
+#                 print(f"❌ Нет имени инструмента")
+#                 continue
+#
+#             tool_func = next((t for t in AVAILABLE_TOOLS if t.name == tool_name), None)
+#
+#             if not tool_func:
+#                 tool_result_str = f"Ошибка: функция {tool_name} не найдена"
+#             elif not tool_args:
+#                 tool_result_str = f"Ошибка: нет параметров для {tool_name}"
+#             else:
+#                 try:
+#                     print(f"🔧 Выполняю: {tool_name}({tool_args})")
+#                     tool_result = tool_func.invoke(tool_args)
+#
+#                     if tool_name == "generate_picture" and isinstance(tool_result, dict):
+#                         if tool_result.get("status") == "success":
+#                             attachment = tool_result.get("image_url")
+#
+#                     tool_result_str = json.dumps(tool_result, ensure_ascii=False) if isinstance(tool_result,
+#                                                                                                 dict) else str(
+#                         tool_result)
+#                     print(f"✅ Результат: {tool_result_str[:100]}")
+#                 except Exception as e:
+#                     traceback.print_exc()
+#                     tool_result_str = f"Ошибка: {str(e)}"
+#
+#             # Добавляем результат в историю
+#             history.append(ToolMessage(
+#                 content=tool_result_str,
+#                 tool_call_id=tool_call_id
+#             ))
+#             print(f"   Добавлен ToolMessage для {tool_name}")
+#
+#         # Получаем финальный ответ
+#         print("🤖 Запрашиваю финальный ответ...")
+#         print(f"📚 История ({len(history)} сообщений):")
+#         for i, msg in enumerate(history):
+#             msg_type = type(msg).__name__
+#             content_preview = str(msg.content)[:50] if hasattr(msg, 'content') and msg.content else'N/A'
+#             print(f"   [{i}] {msg_type}: {content_preview}")
+#
+#         final_response = None
+#         for attempt in range(3):
+#             try:
+#                 final_response = ai.invoke(history)
+#                 print(f"✅ Ответ получен")
+#                 break
+#             except Exception as e:
+#                 if attempt < 2 and "502" in str(e):
+#                     print(f"⚠️ Попытка {attempt + 1}, повторяю...")
+#                     time.sleep(2)
+#                     continue
+#                 traceback.print_exc()
+#                 return f"Ошибка API: {str(e)}", None
+#
+#         if final_response:
+#             history.append(final_response)
+#     else:
+#         print("⏭️ ИИ ответит без инструментов")
+#         final_response = response
+#         history.append(final_response)
+#
+#     user_chats[user_id] = history
+#
+#     text = ""
+#     if final_response and hasattr(final_response, "content"):
+#         text = final_response.content or ""
+#
+#     if not text:
+#         text = "Извините, не смог обработать запрос 😔"
+#
+#     print(f"📤 Отправляю: {text[:100]}\n")
+#     return text, attachment
+#
+# if __name__ == '__main__':
+#     print(handle('напиши пост про итересный факт из истории России', 16))

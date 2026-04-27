@@ -1,7 +1,6 @@
-langchain-openrouter
-langchain
-langgraph
 vk-api
 python-dotenv
 requests
-pydantic>=2.7.4
+gigachat
+googletrans
+urllib3
